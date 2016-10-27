@@ -2,9 +2,21 @@
 
 package main
 
-import "golang.org/x/tour/pic"
+import (
+	"golang.org/x/tour/pic"
+	"image/color"
+)
 
 type Image struct{}
+
+func (i Image) ColorModel() color.Model {
+}
+
+func (i Image) Bounds() Rectangle {
+}
+
+func (i Image) At(x, y int) color.Color {
+}
 
 func main() {
 	m := Image{}
