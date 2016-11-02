@@ -11,7 +11,16 @@ import (
 // Walk walks the tree t sending all values
 // from the tree to the channel ch.
 func Walk(t *tree.Tree, ch chan int) {
-	fmt.Println(t)
+	_walk(t, ch)
+	close(ch)
+}
+
+func _walk(t *tree.Tree, ch chan int) {
+	if t != nil {
+		_walk(t.Left, ch)
+		ch <- t.Value
+		_walk(t.Right, ch)
+	}
 }
 
 // Same determines whether the trees
@@ -24,5 +33,8 @@ func Same(t1, t2 *tree.Tree) bool {
 func main() {
 	t := tree.New(2)
 	c := make(chan int)
-	Walk(t, c)
+	go Walk(t, c)
+	for i := range c {
+		fmt.Println(i)
+	}
 }
