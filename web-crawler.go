@@ -1,3 +1,5 @@
+// https://go-tour-jp.appspot.com/concurrency/10
+
 package main
 
 import (
@@ -10,7 +12,9 @@ type Fetcher interface {
 	Fetch(url string) (body string, urls []string, err error)
 }
 
-// Crawl uses fetcher to recursively crawl
+var fetched map[string]bool
+
+// Crawl uses fetcher to recly crawl
 // pages starting with url, to a maximum of depth.
 func Crawl(url string, depth int, fetcher Fetcher) {
 	// TODO: Fetch URLs in parallel.
@@ -19,19 +23,45 @@ func Crawl(url string, depth int, fetcher Fetcher) {
 	if depth <= 0 {
 		return
 	}
-	body, urls, err := fetcher.Fetch(url)
-	if err != nil {
-		fmt.Println(err)
+
+	// fetched already url
+	_, ok := fetched[url]
+	if ok {
 		return
 	}
-	fmt.Printf("found: %s %q\n", url, body)
-	for _, u := range urls {
-		Crawl(u, depth-1, fetcher)
+	fetched[url] = true
+	ch := make(chan []string)
+	go _crawl(url, fetcher, ch)
+	urls := <-ch
+	fmt.Println(urls)
+
+	var rec func(int) int
+	rec = func(i int) int {
+		fmt.Println("rec: ", i)
+		if i <= 0 {
+			return i
+		} else {
+			rec(i - 1)
+		}
+		return i
 	}
+	rec(3)
+
 	return
 }
 
+func _crawl(url string, fetcher Fetcher, ch chan []string) {
+	body, urls, err := fetcher.Fetch(url)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("found: %s %q\n", url, body)
+	}
+	ch <- urls
+}
+
 func main() {
+	fetched = make(map[string]bool)
 	Crawl("http://golang.org/", 4, fetcher)
 }
 
@@ -44,6 +74,7 @@ type fakeResult struct {
 }
 
 func (f fakeFetcher) Fetch(url string) (string, []string, error) {
+	// check exist fetcher map in "url"
 	if res, ok := f[url]; ok {
 		return res.body, res.urls, nil
 	}
