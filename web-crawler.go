@@ -4,68 +4,106 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
+	"sync"
+	"time"
 )
 
 type Fetcher interface {
-	// Fetch returns the body of URL and
-	// a slice of URLs found on that page.
 	Fetch(url string) (body string, urls []string, err error)
 }
 
 var fetched map[string]bool
 
-// Crawl uses fetcher to recly crawl
-// pages starting with url, to a maximum of depth.
+// -------- 動作の順序
+// URLをフェッチする
+// フェッチしたURLのリンクを探す
+// リンクのURLをフェッチする
+
+// -------- 問題点
+// chを使いまわすと遅いフェッチがあったときに順番が崩れる
+//   -> それによって再帰ごとに同期しないと使えない
+// タイムアウト処理の実装?
+//   -> ここでは考えないことにする
+
+// チャネルの設計
+//           root
+// 1-1 1-2 1-3,        2-1 2-2 2-3
+// 1-1-1 1-1-2, 1-2-1 1-2-2, ...
+//   ---- 1-1 1-1-1 1-1-2 のようなグループでchを作っていく
+//        1-1の1つ下の階層(1-1-x)が並列に処理できるようになる
+
 func Crawl(url string, depth int, fetcher Fetcher) {
-	// TODO: Fetch URLs in parallel.
-	// TODO: Don't fetch the same URL twice.
-	// This implementation doesn't do either:
 	if depth <= 0 {
 		return
 	}
 
-	// fetched already url
-	_, ok := fetched[url]
-	if ok {
-		return
-	}
-	fetched[url] = true
-	ch := make(chan []string)
-	go _crawl(url, fetcher, ch)
+	var wg sync.WaitGroup
+	ch := make(chan []string, 1)
+	go _crawl(url, fetcher, ch, nil)
 	urls := <-ch
-	fmt.Println(urls)
 
-	var rec func(int) int
-	rec = func(i int) int {
-		fmt.Println("rec: ", i)
-		if i <= 0 {
-			return i
-		} else {
-			rec(i - 1)
-		}
-		return i
-	}
-	rec(3)
+	// 残りのURLを指定の深さまでフェッチする
+	wg.Add(1)
+	fmt.Println("globalWg++")
+	go _fetch(urls, depth-1, fetcher, &wg)
+
+	// time.Sleep(time.Duration(10000) * time.Millisecond)
+	fmt.Println("-------- wg.wait")
+	wg.Wait()
 
 	return
 }
 
-func _crawl(url string, fetcher Fetcher, ch chan []string) {
-	body, urls, err := fetcher.Fetch(url)
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		fmt.Printf("found: %s %q\n", url, body)
+func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup) {
+	defer func() {
+		fmt.Println("globalWg--")
+		globalWg.Done()
+	}()
+	if depth <= 0 {
+		return
 	}
-	ch <- urls
+
+	var wg sync.WaitGroup
+	fetchCh := make(chan []string, len(urls))
+	for _, u := range urls {
+		wg.Add(1)
+		go _crawl(u, fetcher, fetchCh, &wg)
+	}
+	wg.Wait()
+
+	// _crawlの結果を全て受信する
+	fmt.Println("urls:", urls)
+	fmt.Println("fetchCh:", fetchCh)
+	for res := range fetchCh {
+		fmt.Println("globalWg++")
+		globalWg.Add(1)
+		go _fetch(res, depth-1, fetcher, globalWg)
+	}
+}
+
+func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
+	defer func() {
+		if wg != nil {
+			wg.Done()
+		}
+	}()
+	// body, urls, err := fetcher.Fetch(url)
+	_, urls, err := fetcher.Fetch(url)
+	if err != nil {
+		// fmt.Println(err)
+	} else {
+		// fmt.Printf("found: %s %q\n", url, body)
+		ch <- urls
+	}
+	fmt.Println("Done _crawl")
 }
 
 func main() {
 	fetched = make(map[string]bool)
-	Crawl("http://golang.org/", 4, fetcher)
+	Crawl("http://golang.org/", 2, fetcher)
 }
 
-// fakeFetcher is Fetcher that returns canned results.
 type fakeFetcher map[string]*fakeResult
 
 type fakeResult struct {
@@ -73,15 +111,17 @@ type fakeResult struct {
 	urls []string
 }
 
+// URLからHTMLをフェッチする
+// 本来ならばここで通信を行うので並列化したい
 func (f fakeFetcher) Fetch(url string) (string, []string, error) {
-	// check exist fetcher map in "url"
+	// それっぽく待つ
+	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	if res, ok := f[url]; ok {
 		return res.body, res.urls, nil
 	}
 	return "", nil, fmt.Errorf("not found: %s", url)
 }
 
-// fetcher is a populated fakeFetcher.
 var fetcher = fakeFetcher{
 	"http://golang.org/": &fakeResult{
 		"The Go Programming Language",
