@@ -45,11 +45,7 @@ func Crawl(url string, depth int, fetcher Fetcher) {
 
 	// 残りのURLを指定の深さまでフェッチする
 	wg.Add(1)
-	fmt.Println("globalWg++")
 	go _fetch(urls, depth-1, fetcher, &wg)
-
-	// time.Sleep(time.Duration(10000) * time.Millisecond)
-	fmt.Println("-------- wg.wait")
 	wg.Wait()
 
 	return
@@ -57,7 +53,6 @@ func Crawl(url string, depth int, fetcher Fetcher) {
 
 func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup) {
 	defer func() {
-		fmt.Println("globalWg--")
 		globalWg.Done()
 	}()
 	if depth <= 0 {
@@ -73,10 +68,7 @@ func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup)
 	wg.Wait()
 
 	// _crawlの結果を全て受信する
-	fmt.Println("urls:", urls)
-	fmt.Println("fetchCh:", fetchCh)
 	for res := range fetchCh {
-		fmt.Println("globalWg++")
 		globalWg.Add(1)
 		go _fetch(res, depth-1, fetcher, globalWg)
 	}
@@ -88,15 +80,13 @@ func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
 			wg.Done()
 		}
 	}()
-	// body, urls, err := fetcher.Fetch(url)
-	_, urls, err := fetcher.Fetch(url)
+	body, urls, err := fetcher.Fetch(url)
 	if err != nil {
-		// fmt.Println(err)
+		fmt.Println(err)
 	} else {
-		// fmt.Printf("found: %s %q\n", url, body)
+		fmt.Printf("found: %s %q\n", url, body)
 		ch <- urls
 	}
-	fmt.Println("Done _crawl")
 }
 
 func main() {
