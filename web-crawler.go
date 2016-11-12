@@ -40,7 +40,8 @@ func Crawl(url string, depth int, fetcher Fetcher) {
 
 	var wg sync.WaitGroup
 	ch := make(chan []string, 1)
-	go _crawl(url, fetcher, ch, nil)
+	wg.Add(1)
+	go _crawl(url, fetcher, ch, &wg)
 	urls := <-ch
 
 	// 残りのURLを指定の深さまでフェッチする
@@ -52,9 +53,8 @@ func Crawl(url string, depth int, fetcher Fetcher) {
 }
 
 func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup) {
-	defer func() {
-		globalWg.Done()
-	}()
+	defer globalWg.Done()
+
 	if depth <= 0 {
 		return
 	}
@@ -66,6 +66,7 @@ func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup)
 		go _crawl(u, fetcher, fetchCh, &wg)
 	}
 	wg.Wait()
+	close(fetchCh)
 
 	// _crawlの結果を全て受信する
 	for res := range fetchCh {
@@ -75,11 +76,8 @@ func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup)
 }
 
 func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
-	defer func() {
-		if wg != nil {
-			wg.Done()
-		}
-	}()
+	defer wg.Done()
+
 	body, urls, err := fetcher.Fetch(url)
 	if err != nil {
 		fmt.Println(err)
@@ -91,7 +89,7 @@ func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
 
 func main() {
 	fetched = make(map[string]bool)
-	Crawl("http://golang.org/", 2, fetcher)
+	Crawl("http://golang.org/", 4, fetcher)
 }
 
 type fakeFetcher map[string]*fakeResult
@@ -101,10 +99,8 @@ type fakeResult struct {
 	urls []string
 }
 
-// URLからHTMLをフェッチする
-// 本来ならばここで通信を行うので並列化したい
 func (f fakeFetcher) Fetch(url string) (string, []string, error) {
-	// それっぽく待つ
+	// *それっぽく待つ
 	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	if res, ok := f[url]; ok {
 		return res.body, res.urls, nil
