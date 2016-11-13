@@ -13,25 +13,24 @@ type Fetcher interface {
 	Fetch(url string) (body string, urls []string, err error)
 }
 
-var fetched map[string]bool
+type Fetched struct {
+	v   map[string]bool
+	mux sync.Mutex
+}
 
-// -------- 動作の順序
-// URLをフェッチする
-// フェッチしたURLのリンクを探す
-// リンクのURLをフェッチする
+var fetched Fetched
 
-// -------- 問題点
-// chを使いまわすと遅いフェッチがあったときに順番が崩れる
-//   -> それによって再帰ごとに同期しないと使えない
-// タイムアウト処理の実装?
-//   -> ここでは考えないことにする
+func (f *Fetched) Store(s string) {
+	f.mux.Lock()
+	f.v[s] = true
+	f.mux.Unlock()
+}
 
-// チャネルの設計
-//           root
-// 1-1 1-2 1-3,        2-1 2-2 2-3
-// 1-1-1 1-1-2, 1-2-1 1-2-2, ...
-//   ---- 1-1 1-1-1 1-1-2 のようなグループでchを作っていく
-//        1-1の1つ下の階層(1-1-x)が並列に処理できるようになる
+func (f *Fetched) Exist(s string) bool {
+	defer f.mux.Unlock()
+	f.mux.Lock()
+	return f.v[s]
+}
 
 func Crawl(url string, depth int, fetcher Fetcher) {
 	if depth <= 0 {
@@ -78,6 +77,12 @@ func _fetch(urls []string, depth int, fetcher Fetcher, globalWg *sync.WaitGroup)
 func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	// check duplication
+	if fetched.Exist(url) {
+		return
+	}
+	fetched.Store(url)
+
 	body, urls, err := fetcher.Fetch(url)
 	if err != nil {
 		fmt.Println(err)
@@ -88,7 +93,7 @@ func _crawl(url string, fetcher Fetcher, ch chan []string, wg *sync.WaitGroup) {
 }
 
 func main() {
-	fetched = make(map[string]bool)
+	fetched = Fetched{v: make(map[string]bool)}
 	Crawl("http://golang.org/", 4, fetcher)
 }
 
